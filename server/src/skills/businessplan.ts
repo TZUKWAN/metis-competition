@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { addAssets, projectDir, readFacts, readJsonArr, readManifest, setTaskStatus, touch, type Asset, type SourceItem } from '../workspace.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -113,11 +114,10 @@ async function genSection(projectId: string, section: SectionDef): Promise<strin
     {
       role: 'system',
       content:
-        `你是商业计划书撰稿人。请撰写"${section.title}"。\n${STYLE_MD}\n` +
+        getPrompt('prompt.business_plan', (`你是商业计划书撰稿人。请撰写"${section.title}"。\n${STYLE_MD}\n` +
         '章节编号与标题严格按给定大纲；没有的事实不要编造；公司/工商信息没有就写"团队尚未完成工商注册，计划……"并注明待用户补充；' +
         '涉及外部数据时在句末括注来源编号（src_xxx）；预测数据注明"预测"。只输出 Markdown 正文（以章节标题开头，用 ## 或 ###）。' +
-        imageBlock,
-    },
+        imageBlock))},
     { role: 'user', content: projectBrief(projectId) },
   ]);
   fs.writeFileSync(target, md.trim() + '\n', 'utf8');

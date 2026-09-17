@@ -13,3 +13,6 @@ workspace/
 # 临时/日志
 *.log
 pw_*.mjs
+
+# 测试截图与临时产物
+test-assets/*.png

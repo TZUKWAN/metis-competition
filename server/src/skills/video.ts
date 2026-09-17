@@ -7,7 +7,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { addAssets, projectDir, readFacts, readManifest, setTaskStatus, touch, type Asset } from '../workspace.js';
 import { ffmpegFrames, hasFfmpeg } from './ffmpeg.js';
 
@@ -63,8 +64,7 @@ export async function runVideo(projectId: string): Promise<{ videos: string[] }>
     const motion = await chatCompletion([
       {
         role: 'system',
-        content: '为 image-to-video 生成 8 秒动作描述（镜头缓慢推近、自然光变化、元素轻微运动，写实风格），50-80字，只输出描述。',
-      },
+        content: getPrompt('prompt.video', ('为 image-to-video 生成 8 秒动作描述（镜头缓慢推近、自然光变化、元素轻微运动，写实风格），50-80字，只输出描述。'))},
       { role: 'user', content: `产品：${productName}；首帧素材：${firstFrame.title}（${firstFrame.description}）` },
     ]);
 

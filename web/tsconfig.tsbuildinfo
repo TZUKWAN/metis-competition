@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/markdown.tsx","./src/vite-env.d.ts","./src/components/artifactspanel.tsx","./src/components/chatview.tsx","./src/components/projectlist.tsx","./src/components/settingsdialog.tsx","./src/components/previews.tsx"],"errors":true,"version":"5.9.3"}

@@ -5,7 +5,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { projectDir, readFacts, readJsonArr, setTaskStatus, touch, writeJson, type SourceItem } from '../workspace.js';
 import { extractPage, getSearchProvider, type SearchResultItem } from './search.js';
 
@@ -105,10 +106,9 @@ export async function runResearch(projectId: string): Promise<{ sources: number;
         {
           role: 'system',
           content:
-            `你是竞赛项目调研员，为"${projectName}"（${summary}）撰写${fileTitles[hint]}初稿。` +
+            getPrompt('prompt.research_summary', (`你是竞赛项目调研员，为"${projectName}"（${summary}）撰写${fileTitles[hint]}初稿。` +
             '要求：平实专业、逻辑严谨、不编造数据；每个关键数据后用 [S数字] 标注来源编号；' +
-            '数据找不到就写"公开资料有限，待补充"，不要虚构。输出 Markdown，300-600字。',
-        },
+            '数据找不到就写"公开资料有限，待补充"，不要虚构。输出 Markdown，300-600字。'))},
         { role: 'user', content: excerpt },
       ]);
       fs.writeFileSync(path.join(dir, 'research', fileNames[hint]), `# ${fileTitles[hint]}\n\n${md}\n`, 'utf8');
@@ -120,9 +120,8 @@ export async function runResearch(projectId: string): Promise<{ sources: number;
       {
         role: 'system',
         content:
-          `基于以下调研材料，为"${projectName}"写 research-summary.md 摘要：目标用户、核心痛点、市场规模要点、3-5个竞品、政策依据、技术趋势。` +
-          '数据后标注 [S数字] 来源；300-500字；平实专业。',
-      },
+          getPrompt('prompt.research_summary', (`基于以下调研材料，为"${projectName}"写 research-summary.md 摘要：目标用户、核心痛点、市场规模要点、3-5个竞品、政策依据、技术趋势。` +
+          '数据后标注 [S数字] 来源；300-500字；平实专业。'))},
       { role: 'user', content: material.slice(0, 12_000) },
     ]);
     fs.writeFileSync(path.join(dir, 'research', 'research-summary.md'), `# 调研摘要\n\n${summaryMd}\n`, 'utf8');

@@ -33,3 +33,7 @@ export function loadEnv(): void {
 
 // 模块加载即生效：任何入口 import './env.js' 后环境变量即可用
 loadEnv();
+
+// 用户设置（设置页保存的模型/Prompt 配置）覆盖 .env：显式设置优先，清空回落
+import { applySettingsToEnv } from './settings.js';
+applySettingsToEnv();

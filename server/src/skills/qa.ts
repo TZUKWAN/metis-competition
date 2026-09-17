@@ -5,7 +5,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { projectDir, readFacts, readJsonArr, readJsonFile, setTaskStatus, touch, type SourceItem } from '../workspace.js';
 
 function requireLlm(): void {
@@ -38,9 +39,8 @@ export async function runQaConsistency(projectId: string): Promise<{ reports: st
       {
         role: 'system',
         content:
-          '你是交付物质检员。逐项检查以下交付物之间是否存在冲突，只报告发现的问题，不要修改任何文件。检查项：项目名称/产品名称/核心功能/核心技术/技术架构/团队成员/导师/客户数量/知识产权数量/财务数据/市场规模/项目阶段。输出 Markdown：\n' +
-          '# 一致性检查报告\n\n每项一节：检查项 | 各交付物中的表述 | 是否一致 | 冲突说明（如有） | 建议（仅供人参考）。\n最后给"严重冲突数/轻微冲突数/一致项数"汇总。',
-      },
+          getPrompt('prompt.qa_consistency', ('你是交付物质检员。逐项检查以下交付物之间是否存在冲突，只报告发现的问题，不要修改任何文件。检查项：项目名称/产品名称/核心功能/核心技术/技术架构/团队成员/导师/客户数量/知识产权数量/财务数据/市场规模/项目阶段。输出 Markdown：\n' +
+          '# 一致性检查报告\n\n每项一节：检查项 | 各交付物中的表述 | 是否一致 | 冲突说明（如有） | 建议（仅供人参考）。\n最后给"严重冲突数/轻微冲突数/一致项数"汇总。'))},
       {
         role: 'user',
         content: `## facts.json\n${factsMd}\n\n## 商业计划书（摘录）\n${plan}\n\n## slide-plan.json\n${slides}\n\n## 专利交底书（摘录）\n${patent}\n\n## 软著申请表信息（摘录）\n${copyright}`,

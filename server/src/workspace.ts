@@ -19,7 +19,32 @@ export interface ProjectMeta {
   status: string;
   created_at: string;
   updated_at: string;
+  /** 用户选择的成果（business_plan/ppt/demo/patent/copyright），旧项目读取时自动推断 */
+  selected_outputs?: string[];
+  /** onboarding 状态机：select(选成果) → q1..q5(五问) → done；答案逐项落盘 */
+  onboarding?: OnboardingState;
 }
+
+export interface OnboardingState {
+  step: 'select' | 'q1_market' | 'q2_outcome' | 'q3_business' | 'q4_resources' | 'q5_university' | 'summarize' | 'done';
+  completed?: boolean;
+  market_and_customer?: string;
+  desired_outcome?: string;
+  business_model?: string;
+  existing_resources?: string;
+  university?: string;
+}
+
+export const OUTPUT_KEYS = ['business_plan', 'ppt', 'demo', 'patent', 'copyright'] as const;
+export type OutputKey = (typeof OUTPUT_KEYS)[number];
+
+export const ONBOARDING_QUESTIONS: { step: OnboardingState['step']; field: keyof OnboardingState; text: string }[] = [
+  { step: 'q1_market', field: 'market_and_customer', text: '这个项目主要面向什么市场，目标客户是谁？大概说一下就可以，不需要很正式。' },
+  { step: 'q2_outcome', field: 'desired_outcome', text: '你希望这个项目最终实际做成什么样？用户使用以后具体可以完成什么，或者能获得什么效果？' },
+  { step: 'q3_business', field: 'business_model', text: '这个项目准备采用什么商业模式？如果暂时没有想清楚，可以直接说不知道。' },
+  { step: 'q4_resources', field: 'existing_resources', text: '目前这个项目已经有哪些资源？有什么写什么就可以，比如团队、技术、学校资源、营销渠道、合作方、客户、投资方、知识产权、比赛成果等，没有的不用填。' },
+  { step: 'q5_university', field: 'university', text: '这个项目属于哪所高校？如果是跨校团队，也可以把相关学校都告诉我。' },
+];
 
 export interface Fact {
   key: string;
@@ -134,11 +159,13 @@ export function listProjects(): ProjectMeta[] {
 }
 
 export function createProject(input: {
-  name: string;
-  summary: string;
+  name?: string;
+  summary?: string;
   project_type?: string;
   competition_name?: string;
   track?: string;
+  minimal?: boolean;
+  onboarding?: OnboardingState;
 }): ProjectMeta {
   const id = nextProjectId();
   const dir = projectDir(id);
@@ -147,19 +174,21 @@ export function createProject(input: {
   const ts = now();
   const meta: ProjectMeta = {
     project_id: id,
-    name: input.name,
-    summary: input.summary,
+    name: input.name ?? '新项目',
+    summary: input.summary ?? '',
     project_type: input.project_type ?? 'software',
     competition_name: input.competition_name ?? '',
     track: input.track ?? '',
     status: 'research',
     created_at: ts,
     updated_at: ts,
+    selected_outputs: [],
+    onboarding: input.onboarding ?? { step: 'select' },
   };
   writeJson(path.join(dir, 'project.json'), meta);
   writeJson(path.join(dir, 'facts.json'), [
-    { key: 'project_name', label: '项目名称', value: input.name, type: 'user_provided', source: 'user', confirmed: true },
-    { key: 'summary', label: '一句话介绍', value: input.summary, type: 'user_provided', source: 'user', confirmed: true },
+    { key: 'project_name', label: '项目名称', value: input.name ?? '', type: 'user_provided', source: 'user', confirmed: true },
+    { key: 'summary', label: '一句话介绍', value: input.summary ?? '', type: 'user_provided', source: 'user', confirmed: true },
   ] satisfies Fact[]);
   writeJson(path.join(dir, 'sources.json'), [] satisfies SourceItem[]);
   writeJson(path.join(dir, 'rules.json'), {
@@ -282,4 +311,75 @@ export function nextAssetId(projectId: string): string {
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
   return `asset_${String(max + 1).padStart(3, '0')}`;
+}
+
+// ---------- 交互重构新增（项目列表/成果/预览支撑） ----------
+
+export function readProjectMeta(projectId: string): ProjectMeta {
+  const meta = readJson<ProjectMeta>(path.join(projectDir(projectId), 'project.json'), null as unknown as ProjectMeta);
+  if (!meta) throw new Error(`project not found: ${projectId}`);
+  return meta;
+}
+
+export function updateProjectMeta(projectId: string, patch: Partial<ProjectMeta>): ProjectMeta {
+  const meta = { ...readProjectMeta(projectId), ...patch, project_id: projectId, updated_at: now() };
+  writeJson(path.join(projectDir(projectId), 'project.json'), meta);
+  return meta;
+}
+
+export function deleteProject(projectId: string): void {
+  const dir = projectDir(projectId);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function hasFile(projectId: string, rel: string): boolean {
+  return fs.existsSync(path.join(projectDir(projectId), rel));
+}
+
+/** 成果状态（前端右栏）：pending / running / done / attention。由 tasks.json + 文件存在情况动态计算（PRD §35） */
+export function artifactStatus(projectId: string): Record<string, string> {
+  const tasks = readJson<{ id: string; status: string }[]>(path.join(projectDir(projectId), 'tasks.json'), []);
+  const t = (id: string) => tasks.find((x) => x.id === id)?.status ?? 'waiting';
+  const map = (taskId: string, doneFile?: string): string => {
+    if (doneFile && hasFile(projectId, doneFile)) return 'done';
+    if (t(taskId) === 'running') return 'running';
+    if (doneFile && hasFile(projectId, doneFile)) return 'done';
+    if (t(taskId) === 'done') return doneFile ? 'attention' : 'done'; // 声称完成但文件缺失 → 需要处理
+    if (t(taskId) === 'failed') return 'attention';
+    return 'pending';
+  };
+  return {
+    demo: map('demo', 'demo/src/App.tsx'),
+    business_plan: map('business_plan', 'business-plan/business-plan.docx'),
+    ppt: map('ppt', 'ppt/final.pptx'),
+    patent: map('patent', 'patent/disclosure.md'),
+    copyright: map('copyright', 'software-copyright/exported/application-info.docx'),
+  };
+}
+
+/** 旧项目兼容：没有 selected_outputs 时按已有成果推断并写回 */
+export function ensureSelectedOutputs(projectId: string, meta: ProjectMeta): ProjectMeta {
+  if (meta.selected_outputs && meta.onboarding) return meta;
+  const status = artifactStatus(projectId);
+  const inferred = (Object.keys(status) as (keyof typeof status)[]).filter((k) => status[k] !== 'pending');
+  const patch: Partial<ProjectMeta> = {
+    selected_outputs: meta.selected_outputs?.length ? meta.selected_outputs : inferred,
+    onboarding: meta.onboarding ?? { step: 'done', completed: true },
+  };
+  return updateProjectMeta(projectId, patch);
+}
+
+export function listProjectDir(projectId: string, relPath: string): { name: string; type: 'file' | 'dir'; size?: number }[] {
+  const dir = projectDir(projectId);
+  const abs = path.resolve(dir, relPath);
+  if (!abs.startsWith(dir) || !fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new Error(`dir not found: ${relPath}`);
+  return fs
+    .readdirSync(abs, { withFileTypes: true })
+    .filter((e) => !e.name.startsWith('.'))
+    .map((e) => ({
+      name: e.name,
+      type: e.isDirectory() ? ('dir' as const) : ('file' as const),
+      ...(e.isDirectory() ? {} : { size: fs.statSync(path.join(abs, e.name)).size }),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

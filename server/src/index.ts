@@ -1,6 +1,6 @@
 /**
  * index.ts — METIS Competition Server 入口
- * API（契约见 PLAN.md §2）+ workspace 静态文件服务 + web 构建产物服务
+ * API（契约见 PLAN.md §2 + 交互重构新增）+ workspace 静态文件服务 + web 构建产物服务
  */
 import './env.js';
 import express from 'express';
@@ -9,44 +9,46 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  artifactStatus,
   createProject,
+  deleteProject,
+  ensureSelectedOutputs,
   getProject,
+  listProjectDir,
   listProjects,
   projectDir,
   readFacts,
+  readManifest,
   readProjectFile,
+  readProjectMeta,
   setTaskStatus,
-  writeFacts,
   writeProjectFile,
+  updateProjectMeta,
+  writeFacts,
   WORKSPACE_ROOT,
 } from './workspace.js';
-import { chat, loadChatHistory } from './agent.js';
+import { chat, initProjectChat, loadChatHistory, selectOutputs } from './agent.js';
+import { getSettings, saveSettings, SKILL_REGISTRY, PROMPT_REGISTRY, type SettingsShape } from './settings.js';
+import { isAutoRunning, startAutoRun } from './orchestrator.js';
+import { searchBrowser } from './skills/search.js';
 import { runRules } from './skills/rules.js';
 import { runResearch } from './skills/research.js';
 import { runDemo, runDemoTestTask } from './skills/demo.js';
 import { runCapture } from './skills/capture.js';
 import { runDiagrams } from './skills/diagram.js';
+import { runImages } from './skills/images.js';
+import { runVideo } from './skills/video.js';
 import { runBusinessPlan } from './skills/businessplan.js';
+import { runPpt } from './skills/ppt.js';
 import { runPatent } from './skills/patent.js';
 import { runCopyright } from './skills/copyright.js';
 import { runQaConsistency, runDefense } from './skills/qa.js';
-import { runImages } from './skills/images.js';
-import { runVideo } from './skills/video.js';
-import { runPpt } from './skills/ppt.js';
 import { runDeliver } from './skills/deliver.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
 const app = express();
 app.use(express.json({ limit: '20mb' }));
-
-// 长任务后台执行期间，浏览器/网络层的未处理 rejection 不应带走整个服务（Node 25 默认致命退出）
-process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', reason instanceof Error ? reason.stack : reason);
-});
-process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err?.stack ?? err);
-});
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -68,13 +70,60 @@ function wrap(handler: (req: express.Request, res: express.Response) => Promise<
 
 app.get('/api/projects', wrap(async (_req, res) => ok(res, { projects: listProjects() })));
 
+// 极简新建：不再要求表单，名称/描述交给对话理解
 app.post('/api/projects', wrap(async (req, res) => {
   const { name, summary, project_type, competition_name, track } = req.body ?? {};
-  if (!name || !summary) throw new Error('name 和 summary 必填');
-  ok(res, { project: createProject({ name, summary, project_type, competition_name, track }) });
+  const { project } = { project: createProject({ name, summary, project_type, competition_name, track }) };
+  initProjectChat(project.project_id);
+  ok(res, { project });
 }));
 
-app.get('/api/projects/:id', wrap(async (req, res) => ok(res, getProject(req.params.id))));
+app.get('/api/projects/:id', wrap(async (req, res) => {
+  const detail = getProject(req.params.id);
+  const ensured = ensureSelectedOutputs(req.params.id, detail.project);
+  ok(res, { ...detail, project: ensured });
+}));
+
+// 重命名
+app.patch('/api/projects/:id', wrap(async (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  if (!name) throw new Error('name 不能为空');
+  ok(res, { project: updateProjectMeta(req.params.id, { name }) });
+}));
+
+app.delete('/api/projects/:id', wrap(async (req, res) => {
+  deleteProject(req.params.id);
+  ok(res, { deleted: true });
+}));
+
+// ---------- 项目状态（前端轮询：onboarding / 成果状态 / 自动执行标记） ----------
+
+app.get('/api/projects/:id/state', wrap(async (req, res) => {
+  const { tasks } = getProject(req.params.id);
+  const project = ensureSelectedOutputs(req.params.id, readProjectMeta(req.params.id));
+  ok(res, {
+    project,
+    tasks,
+    artifact_status: artifactStatus(req.params.id),
+    auto_running: isAutoRunning(req.params.id),
+  });
+}));
+
+// onboarding：selector 卡片「继续」
+app.post('/api/projects/:id/onboarding/select', wrap(async (req, res) => {
+  const outputs = Array.isArray(req.body?.outputs) ? req.body.outputs.map(String) : [];
+  ok(res, selectOutputs(req.params.id, outputs));
+}));
+
+// 右栏「+ 添加成果」：合并 selected_outputs 并只补跑缺失任务
+app.post('/api/projects/:id/outputs/add', wrap(async (req, res) => {
+  const outputs = Array.isArray(req.body?.outputs) ? req.body.outputs.map(String) : [];
+  const meta = ensureSelectedOutputs(req.params.id, readProjectMeta(req.params.id));
+  const merged = Array.from(new Set([...(meta.selected_outputs ?? []), ...outputs]));
+  updateProjectMeta(req.params.id, { selected_outputs: merged });
+  const r = startAutoRun(req.params.id, { skipDone: true });
+  ok(res, { selected_outputs: merged, ...r });
+}));
 
 // ---------- 文件 ----------
 
@@ -92,6 +141,16 @@ app.put('/api/projects/:id/file', wrap(async (req, res) => {
   const rel = String(req.query.path ?? '');
   writeProjectFile(req.params.id, rel, String(req.body?.content ?? ''));
   ok(res, { saved: rel });
+}));
+
+// 目录列表（预览用：ppt/rendered、patent、software-copyright/exported、demo/src 等）
+app.get('/api/projects/:id/dir', wrap(async (req, res) => {
+  const rel = String(req.query.path ?? '');
+  ok(res, { path: rel, entries: listProjectDir(req.params.id, rel) });
+}));
+
+app.get('/api/projects/:id/assets', wrap(async (req, res) => {
+  ok(res, { assets: readManifest(req.params.id) });
 }));
 
 app.post('/api/projects/:id/upload', upload.single('file'), wrap(async (req, res) => {
@@ -118,6 +177,7 @@ app.get('/api/projects/:id/chat', wrap(async (req, res) => ok(res, { messages: l
 
 app.post('/api/projects/:id/chat', wrap(async (req, res) => {
   const message = String(req.body?.message ?? '');
+  const context = (req.body?.context ?? undefined) as { type?: string; artifact?: string; page?: number } | undefined;
   if (!message.trim()) throw new Error('message 不能为空');
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
@@ -126,7 +186,7 @@ app.post('/api/projects/:id/chat', wrap(async (req, res) => {
   try {
     const reply = await chat(req.params.id, message, (delta) => {
       res.write(`data: ${JSON.stringify({ delta })}\n\n`);
-    });
+    }, context);
     res.write(`data: ${JSON.stringify({ message: reply })}\n\n`);
   } catch (err) {
     res.write(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`);
@@ -134,7 +194,71 @@ app.post('/api/projects/:id/chat', wrap(async (req, res) => {
   res.end();
 }));
 
-// ---------- 流水线任务（PRD §42 固定顺序；skills 逐 Milestone 接入） ----------
+// ---------- 设置（模型与 API / Skills / Prompts） ----------
+
+app.get('/api/settings', wrap(async (_req, res) => ok(res, { settings: getSettings() })));
+
+app.put('/api/settings', wrap(async (req, res) => {
+  const patch = (req.body ?? {}) as Partial<SettingsShape>;
+  ok(res, { settings: saveSettings(patch) });
+}));
+
+app.get('/api/skills', wrap(async (_req, res) => {
+  const disabled = getSettings().skills_disabled;
+  ok(res, { skills: SKILL_REGISTRY.map((s) => ({ ...s, enabled: !disabled.includes(s.id) })) });
+}));
+
+app.get('/api/prompts', wrap(async (_req, res) => {
+  const { prompts } = getSettings();
+  ok(res, { prompts: PROMPT_REGISTRY.map((p) => ({ ...p, override: prompts[p.key] ?? '' })) });
+}));
+
+app.post('/api/settings/test', wrap(async (req, res) => {
+  const { kind, config } = (req.body ?? {}) as { kind: string; config: Record<string, string> };
+  if (kind === 'llm') {
+    const base = (config.base || '').replace(/\/$/, '');
+    const resp = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
+      body: JSON.stringify({ model: config.model, messages: [{ role: 'user', content: '回复：OK' }], max_tokens: 200 }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${(await resp.text()).slice(0, 160)}`);
+    const data = (await resp.json()) as { choices?: { message?: { content?: string } }[] };
+    ok(res, { ok: true, detail: data.choices?.[0]?.message?.content?.slice(0, 60) ?? '连接成功' });
+    return;
+  }
+  if (kind === 'search') {
+    const prevProvider = process.env.SEARCH_PROVIDER;
+    const prevKey = process.env.SEARCH_API_KEY;
+    process.env.SEARCH_PROVIDER = config.provider || 'browser';
+    if (config.key) process.env.SEARCH_API_KEY = config.key;
+    else delete process.env.SEARCH_API_KEY;
+    try {
+      const results = await searchBrowser('大学生创新创业大赛');
+      ok(res, { ok: results.length > 0, detail: `返回 ${results.length} 条结果` });
+    } finally {
+      if (prevProvider === undefined) delete process.env.SEARCH_PROVIDER;
+      else process.env.SEARCH_PROVIDER = prevProvider;
+      if (prevKey === undefined) delete process.env.SEARCH_API_KEY;
+      else process.env.SEARCH_API_KEY = prevKey;
+    }
+    return;
+  }
+  if (kind === 'image' || kind === 'video') {
+    const base = (config.base || '').replace(/\/$/, '');
+    const resp = await fetch(`${base}/models`, {
+      headers: { Authorization: `Bearer ${config.key}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${(await resp.text()).slice(0, 160)}`);
+    ok(res, { ok: true, detail: `${base} 可达` });
+    return;
+  }
+  throw new Error(`未知测试类型: ${kind}`);
+}));
+
+// ---------- 流水线任务（保留：预览「重新生成」等按钮直接触发） ----------
 
 const TASK_REGISTRY: Record<string, (projectId: string) => Promise<unknown>> = {
   rules: (id) => runRules(id),
@@ -159,17 +283,20 @@ app.post('/api/projects/:id/run/:task', wrap(async (req, res) => {
   const handler = TASK_REGISTRY[task];
   if (!handler) {
     setTaskStatus(req.params.id, task, 'failed');
-    ok(res, { task, status: 'failed', message: `任务 ${task} 尚未接入（对应 Milestone 未实现），已在 tasks.json 中如实标记 failed` });
+    ok(res, { task, status: 'failed', message: `任务 ${task} 尚未接入，已在 tasks.json 中如实标记 failed` });
     return;
   }
-  // 流水线任务可能耗时较长，先响应 accepted，执行结果写入 tasks.json / 文件
   ok(res, { task, status: 'running' });
   try {
     await handler(req.params.id);
   } catch (err) {
-    // 状态已由 skill 内部标记为 failed；这里只记录日志，不再向已关闭的响应写错误
     console.error(`[task ${task}] failed:`, err instanceof Error ? err.message : err);
   }
+}));
+
+// 让 Agent 立即按 selected_outputs 继续跑（用户说「继续」等场景的兜底入口）
+app.post('/api/projects/:id/run', wrap(async (req, res) => {
+  ok(res, startAutoRun(req.params.id, { skipDone: true }));
 }));
 
 // ---------- 静态服务 ----------

@@ -6,7 +6,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { addAssets, projectDir, readFacts, readManifest, setTaskStatus, touch, type Asset } from '../workspace.js';
 
 interface ImageProvider {
@@ -112,7 +113,7 @@ export async function runImages(projectId: string): Promise<{ images: string[]; 
     const heroBrief = briefFor('项目 Hero 图（PPT 封面/计划书扉页）', facts, `- 画面主体：能代表"${productName}"的抽象+具象结合视觉，科技感但克制`);
     fs.writeFileSync(path.join(outDir, 'image-brief-hero.md'), heroBrief, 'utf8');
     const heroPrompt = await chatCompletion([
-      { role: 'system', content: '把 image-brief 转成一段高质量英文生图 prompt（photorealistic, natural lighting），只输出 prompt 本身。' },
+      { role: 'system', content: getPrompt('prompt.image', ('把 image-brief 转成一段高质量英文生图 prompt（photorealistic, natural lighting），只输出 prompt 本身。'))},
       { role: 'user', content: heroBrief },
     ]);
     let heroBuf = await provider.generate(heroPrompt, '1536x1024');
@@ -132,7 +133,7 @@ export async function runImages(projectId: string): Promise<{ images: string[]; 
     const sceneBrief = briefFor('真实使用场景图（学生在真实环境中使用产品）', facts, '- 场景：高校实验室/图书馆/教室，真实人物自然使用笔记本电脑\n- 光线：自然室内光');
     fs.writeFileSync(path.join(outDir, 'image-brief-scene.md'), sceneBrief, 'utf8');
     const scenePrompt = await chatCompletion([
-      { role: 'system', content: '把 image-brief 转成一段高质量英文生图 prompt（photorealistic, real campus environment, natural indoor light），屏幕内容保持模糊或显示通用界面（不要编造具体 UI 文字）。只输出 prompt 本身。' },
+      { role: 'system', content: getPrompt('prompt.image', ('把 image-brief 转成一段高质量英文生图 prompt（photorealistic, real campus environment, natural indoor light），屏幕内容保持模糊或显示通用界面（不要编造具体 UI 文字）。只输出 prompt 本身。'))},
       { role: 'user', content: sceneBrief },
     ]);
     const scenePath = path.join(outDir, 'usage-scene.png');

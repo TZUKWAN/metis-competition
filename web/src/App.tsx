@@ -1,94 +1,164 @@
-import { useEffect, useState } from "react";
-import { api, type CreateProjectInput, type Project, type ProjectDetail } from "./api";
-import type { NodeKey } from "./nodes";
-import LeftTree from "./components/LeftTree";
-import CenterView from "./components/CenterView";
-import RightChat from "./components/RightChat";
-import NewProjectDialog from "./components/NewProjectDialog";
+import { useCallback, useEffect, useState } from "react";
+import { api, type ChatMessage, type Project, type ProjectState } from "./api";
+import ProjectList from "./components/ProjectList";
+import ChatView from "./components/ChatView";
+import ArtifactsPanel from "./components/ArtifactsPanel";
+import SettingsDialog from "./components/SettingsDialog";
+import { ArtifactPreview, type PreviewKind } from "./components/previews";
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ProjectDetail | null>(null);
-  const [node, setNode] = useState<NodeKey>("overview");
-  const [showNew, setShowNew] = useState(false);
-  const [loadError, setLoadError] = useState("");
+  const [state, setState] = useState<ProjectState | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [overlay, setOverlay] = useState<PreviewKind | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
 
-  useEffect(() => {
-    api
+  const refreshProjects = useCallback(() => {
+    return api
       .listProjects()
-      .then(({ projects: list }) => {
-        setProjects(list);
-        setCurrentId((cur) => cur ?? list[0]?.project_id ?? null);
+      .then((r) => {
+        setProjects(r.projects);
+        // 刷新/重开后自动选中上次的项目（localStorage 记忆），没有记录则选最近一个
+        setCurrentId((cur) => {
+          if (cur && r.projects.some((p) => p.project_id === cur)) return cur;
+          const last = localStorage.getItem("metis:lastProject");
+          if (last && r.projects.some((p) => p.project_id === last)) return last;
+          return r.projects[r.projects.length - 1]?.project_id ?? null;
+        });
       })
-      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)));
+      .catch(() => {});
   }, []);
 
-  // 拉取项目详情（任务 + 文件树），每 5 秒轮询以刷新任务状态
   useEffect(() => {
-    if (!currentId) {
-      setDetail(null);
-      return;
-    }
-    let alive = true;
-    const load = () => {
-      api
-        .getProject(currentId)
-        .then((d) => {
-          if (alive) setDetail(d);
-        })
-        .catch(() => {});
-    };
-    load();
-    const timer = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  // 记住当前选择的项目
+  useEffect(() => {
+    if (currentId) localStorage.setItem("metis:lastProject", currentId);
   }, [currentId]);
 
-  const handleCreate = async (input: CreateProjectInput) => {
-    const { project } = await api.createProject(input);
-    const list = await api.listProjects();
-    setProjects(list.projects);
-    setCurrentId(project.project_id);
-    setNode("overview");
-    setShowNew(false);
+  const refreshState = useCallback(() => {
+    if (!currentId) return;
+    api
+      .getState(currentId)
+      .then(setState)
+      .catch(() => {});
+    api
+      .getChat(currentId)
+      .then((r) => setMessages(r.messages))
+      .catch(() => {});
+  }, [currentId]);
+
+  // 轮询：任务/成果状态 + 聊天记录（编排器把生成进展写进聊天记录）
+  useEffect(() => {
+    refreshState();
+    const timer = setInterval(refreshState, 2500);
+    return () => clearInterval(timer);
+  }, [refreshState]);
+
+  const handleCreated = (id: string) => {
+    void refreshProjects();
+    setCurrentId(id);
   };
+
+  const handleDeleted = (id: string) => {
+    void refreshProjects();
+    if (currentId === id) setCurrentId(null);
+  };
+
+  const handleOpenPreview = (kind: PreviewKind) => {
+    setOverlay(kind);
+    // 记录最近查看的成果，作为聊天上下文（§26）
+    const w = window as unknown as { __metisContext?: { type: string; artifact?: string; page?: number } };
+    w.__metisContext = { type: kind };
+  };
+
+  const closeOverlay = () => {
+    setOverlay(null);
+  };
+
+  const currentProject = projects.find((p) => p.project_id === currentId);
 
   return (
     <div className="flex h-screen flex-col bg-white text-slate-800">
-      <header className="flex h-12 shrink-0 items-center border-b border-slate-200 bg-white px-4">
-        <div className="text-sm font-bold tracking-wide text-slate-900">
-          METIS <span className="text-blue-600">Competition</span>
+      {/* 顶栏 */}
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-semibold text-slate-800">METIS Competition</span>
+          <span className="hidden text-xs text-slate-400 sm:inline">大学生竞赛团队全链路生产平台</span>
         </div>
-        <div className="ml-3 hidden text-xs text-slate-400 sm:block">大学生竞赛团队全链路生产平台</div>
-        {detail && <div className="ml-auto truncate text-xs text-slate-500">当前项目：{detail.project.name}</div>}
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        >
+          ⚙ 设置
+        </button>
       </header>
-      {loadError && (
-        <div className="shrink-0 bg-red-50 px-4 py-1.5 text-xs text-red-600">
-          无法连接后端 API（{loadError}），请确认 server 已在 8787 端口启动。
-        </div>
-      )}
+
       <div className="flex min-h-0 flex-1">
-        <aside className="w-[260px] shrink-0 border-r border-slate-200 bg-slate-50">
-          <LeftTree
-            projects={projects}
-            currentId={currentId}
-            activeNode={node}
-            onSelectProject={setCurrentId}
-            onSelectNode={setNode}
-            onNewProject={() => setShowNew(true)}
-          />
-        </aside>
-        <main className="min-w-0 flex-1 bg-white">
-          <CenterView projectId={currentId} project={detail?.project ?? null} tree={detail?.tree ?? []} nodeKey={node} />
-        </main>
-        <aside className="flex w-[320px] shrink-0 flex-col border-l border-slate-200 bg-white">
-          <RightChat projectId={currentId} tasks={detail?.tasks ?? []} />
-        </aside>
+        <ProjectList
+          projects={projects}
+          currentId={currentId}
+          onSelect={(id) => {
+            setCurrentId(id);
+            setOverlay(null);
+          }}
+          onCreated={handleCreated}
+          onRenamed={refreshProjects}
+          onDeleted={handleDeleted}
+        />
+
+        {currentId && currentProject ? (
+          <>
+            <ChatView
+              projectId={currentId}
+              state={state}
+              messages={messages}
+              onMessagesChanged={refreshState}
+            />
+            {!rightCollapsed && (
+              <ArtifactsPanel
+                projectId={currentId}
+                state={state}
+                onOpenPreview={handleOpenPreview}
+                onOutputsChanged={refreshState}
+              />
+            )}
+            <button
+              className="w-4 shrink-0 border-l border-slate-100 bg-slate-50 text-[10px] text-slate-300 hover:bg-slate-100 hover:text-slate-500"
+              title={rightCollapsed ? "展开生成物" : "折叠生成物"}
+              onClick={() => setRightCollapsed(!rightCollapsed)}
+            >
+              {rightCollapsed ? "◀" : "▶"}
+            </button>
+          </>
+        ) : (
+          /* 空状态：第一次打开，没有项目 */
+          <div className="flex min-w-0 flex-1 items-center justify-center bg-white">
+            <div className="text-center">
+              <div className="text-2xl font-semibold text-slate-800">METIS Competition</div>
+              <div className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">
+                把你的比赛项目想法告诉我，我会帮你从想法逐步做成可以提交和路演的完整成果。
+              </div>
+              <button
+                onClick={async () => {
+                  const { project } = await api.createProject();
+                  handleCreated(project.project_id);
+                }}
+                className="mt-6 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              >
+                新建项目
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-      <NewProjectDialog open={showNew} onClose={() => setShowNew(false)} onSubmit={handleCreate} />
+
+      {overlay && currentId && <ArtifactPreview kind={overlay} projectId={currentId} onClose={closeOverlay} />}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

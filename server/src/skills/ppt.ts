@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chatCompletion, getLlmConfig, type ContentPart } from '../llm.js';
+import { chatCompletion, getLlmConfig, type ContentPart } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { addAssets, projectDir, readFacts, readManifest, setTaskStatus, touch, type Asset } from '../workspace.js';
 import { PptxFile, type SlideInfo } from './ppt/pptx-io.js';
 
@@ -64,9 +65,8 @@ async function analyzeTemplate(projectId: string, templatePath: string): Promise
     {
       role: 'system',
       content:
-        '你是 PPT 模板分析器。为模板每页判断页面角色，只输出 JSON 数组：[{"slide":1,"role":"cover","title":"页面主标题"}]。角色可选：' +
-        ROLES.join('/') + '。判断依据：文字内容、图片数量、是否图表。识别不了用 generic。',
-    },
+        getPrompt('prompt.ppt_template', ('你是 PPT 模板分析器。为模板每页判断页面角色，只输出 JSON 数组：[{"slide":1,"role":"cover","title":"页面主标题"}]。角色可选：' +
+        ROLES.join('/') + '。判断依据：文字内容、图片数量、是否图表。识别不了用 generic。'))},
     { role: 'user', content: summary },
   ]);
   const m = /\[[\s\S]*\]/.exec(resp);
@@ -90,11 +90,10 @@ async function planSlides(projectId: string, templateJson: { slide: number; role
     {
       role: 'system',
       content:
-        '你是路演 PPT 内容策划。按竞赛结构（封面/摘要/市场/痛点/政策/产品总览/产品详细展示4页/使用流程/架构/核心技术4页/成果4页/知识产权/优势/竞品2页/商业模式/营销2页/进展与商业验证4页/创始人/团队/导师/财务4页/融资/发展规划2页/社会价值3页/结束页）规划 25-35 页母稿。' +
+        getPrompt('prompt.ppt_plan', ('你是路演 PPT 内容策划。按竞赛结构（封面/摘要/市场/痛点/政策/产品总览/产品详细展示4页/使用流程/架构/核心技术4页/成果4页/知识产权/优势/竞品2页/商业模式/营销2页/进展与商业验证4页/创始人/团队/导师/财务4页/融资/发展规划2页/社会价值3页/结束页）规划 25-35 页母稿。' +
         '只输出 JSON 数组：[{"index":1,"role":"cover","title":"大标题(8-20字)","message":"副标题或本页要点(15-35字)","assets":["asset_id"],"template_slide":3}]。\n' +
         '规则：每页必须从模板页中选一个（template_slide=模板页码，优先同角色）；封面/结束页必须有；产品展示页用 demo 截图资产(id见下)；架构页用 diagram 资产；财务页用 chart 资产；' +
-        '文字长度：大标题8-20字，卡片标题4-10字，正文每页总量不超过250中文字符；content 以 message 概述，详细文案下一步再写。',
-    },
+        '文字长度：大标题8-20字，卡片标题4-10字，正文每页总量不超过250中文字符；content 以 message 概述，详细文案下一步再写。'))},
     {
       role: 'user',
       content: `项目事实：\n${facts.map((f) => `${f.label}: ${f.value}`).join('\n')}\n\n商业计划书（摘录）：\n${plan}\n\n可用资产：\n${assetLines}\n\n模板页：\n${tplLines}`,

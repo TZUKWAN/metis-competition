@@ -7,7 +7,8 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { projectDir, readFacts, readManifest, setTaskStatus, touch } from '../workspace.js';
 import { summarizeCode } from './patent.js';
 
@@ -69,8 +70,7 @@ export async function runCopyright(projectId: string): Promise<{ outputs: string
       {
         role: 'system',
         content:
-          '你是软著申请资料整理员。基于真实项目信息生成《申请表信息》文本（填报时对照复制）。字段：软件全称/简称、版本号、软件分类（应用软件/嵌入式等）、开发完成日期、发表状态、著作权人、开发方式、技术特点（200字内）、主要功能（与软件功能一一对应）、源程序量（行数，用给定数据计算）、开发环境、运行环境、编程语言。未知字段原样标注"待用户补充"，禁止编造。',
-      },
+          getPrompt('prompt.copyright', ('你是软著申请资料整理员。基于真实项目信息生成《申请表信息》文本（填报时对照复制）。字段：软件全称/简称、版本号、软件分类（应用软件/嵌入式等）、开发完成日期、发表状态、著作权人、开发方式、技术特点（200字内）、主要功能（与软件功能一一对应）、源程序量（行数，用给定数据计算）、开发环境、运行环境、编程语言。未知字段原样标注"待用户补充"，禁止编造。'))},
       { role: 'user', content: `${common}\n\n源码总行数：${code.files.reduce((s, f) => s + f.lines, 0)} 行\n技术栈：见 package.json（React + TypeScript + Vite + Tailwind）` },
     ]);
     fs.writeFileSync(path.join(outDir, 'application-info.md'), `# 软件著作权申请表信息\n\n${appInfo}\n`, 'utf8');

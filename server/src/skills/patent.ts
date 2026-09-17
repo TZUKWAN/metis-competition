@@ -8,7 +8,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { projectDir, readFacts, readManifest, setTaskStatus, touch } from '../workspace.js';
 import { extractPage, getSearchProvider } from './search.js';
 
@@ -99,13 +100,12 @@ export async function runPatent(projectId: string): Promise<{ outputs: string[] 
       {
         role: 'system',
         content:
-          '你是专利代理师，为大学生竞赛项目做专利点挖掘。输出 Markdown：\n' +
+          getPrompt('prompt.patent', ('你是专利代理师，为大学生竞赛项目做专利点挖掘。输出 Markdown：\n' +
           '## 一、可专利点清单（3-6个，每个含：名称、要解决的技术问题、技术方案要点、与现有技术的区别、建议类型 发明/实用新型/外观设计、自研成分）\n' +
           '## 二、发明/实用新型初步判断（哪些适合发明、哪些只能实用新型，理由）\n' +
           '## 三、技术成分划分（项目自研 / 第三方组件 / 开源技术 / 模型API / 公开算法，逐项列清，禁止把开源组件写成团队原创）\n' +
           '## 四、不建议申请的点（公知技术或缺乏新颖性的，说明原因）\n' +
-          '要求：基于给定的真实技术材料，不得编造未做过的实验或性能数据；引用真实代码中的实现作为技术方案支撑。',
-      },
+          '要求：基于给定的真实技术材料，不得编造未做过的实验或性能数据；引用真实代码中的实现作为技术方案支撑。'))},
       { role: 'user', content: ctx },
     ]);
     fs.writeFileSync(path.join(outDir, 'patent-points.md'), points + '\n', 'utf8');

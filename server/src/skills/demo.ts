@@ -7,7 +7,8 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { chatCompletion, getLlmConfig } from '../llm.js';
+import { chatCompletion, getLlmConfig } from '../llm.js'
+import { getPrompt } from '../settings.js';
 import { projectDir, readFacts, setTaskStatus, touch, type Fact } from '../workspace.js';
 import { killPort, waitForPort } from './netutil.js';
 
@@ -48,11 +49,10 @@ async function genSpec(projectId: string): Promise<string> {
     {
       role: 'system',
       content:
-        '你是产品经理，为大学生竞赛项目写 Demo 产品规格 PRODUCT_SPEC.md。只输出 Markdown。' +
+        getPrompt('prompt.demo_spec', ('你是产品经理，为大学生竞赛项目写 Demo 产品规格 PRODUCT_SPEC.md。只输出 Markdown。' +
         '必须包含：目标用户、用户痛点、核心功能（3-5个）、页面列表（5-8个主要页面：入口/首页/核心功能1-3/结果或分析/数据看板）、' +
         '页面之间的流程、每个页面展示什么、哪些数据是模拟数据（必须明确标注）。' +
-        '要求平实、可实现，不要写无法在前端静态实现的功能（不要后端、不要真实登录支付）。',
-    },
+        '要求平实、可实现，不要写无法在前端静态实现的功能（不要后端、不要真实登录支付）。'))},
     { role: 'user', content: projectBrief(projectId) },
   ]);
   fs.writeFileSync(specPath, md + '\n', 'utf8');
@@ -81,9 +81,8 @@ async function genPagePlan(projectId: string, spec: string): Promise<PagePlan> {
     {
       role: 'system',
       content:
-        '根据 PRODUCT_SPEC 输出页面规划，只输出 JSON：{"productName":"产品名","pages":[{"path":"/","file":"Home.tsx","name":"首页","purpose":"一句话说明","core":true/false}]}。' +
-        '要求：5-8个页面；第一个 path 必须是 "/"；文件名为 PascalCase.tsx（只有文件名，不要带任何路径前缀），放在 src/pages/ 下；标记 3 个核心功能页 core=true。',
-    },
+        getPrompt('prompt.demo_spec', ('根据 PRODUCT_SPEC 输出页面规划，只输出 JSON：{"productName":"产品名","pages":[{"path":"/","file":"Home.tsx","name":"首页","purpose":"一句话说明","core":true/false}]}。' +
+        '要求：5-8个页面；第一个 path 必须是 "/"；文件名为 PascalCase.tsx（只有文件名，不要带任何路径前缀），放在 src/pages/ 下；标记 3 个核心功能页 core=true。'))},
     { role: 'user', content: spec.slice(0, 6000) },
   ]);
   const jsonMatch = /\{[\s\S]*\}/.exec(resp);
@@ -241,7 +240,7 @@ async function genPages(projectId: string, spec: string, plan: PagePlan): Promis
             {
               role: 'system',
               content:
-                `你是资深前端工程师，为竞赛项目 Demo 编写 React 页面组件。产品：${plan.productName}。\n` +
+                getPrompt('prompt.demo_page', (`你是资深前端工程师，为竞赛项目 Demo 编写 React 页面组件。产品：${plan.productName}。\n` +
                 '硬性要求：\n' +
                 `1. 只输出一个 tsx 文件的全部内容（首行以 export default 开头或包含 export default function），不要输出任何解释、不要 markdown 代码块标记。\n` +
                 '2. React 19 + TypeScript + Tailwind CSS v4（类名 Utility 风格），可以 import { 图标 } from "lucide-react"。\n' +
@@ -251,8 +250,7 @@ async function genPages(projectId: string, spec: string, plan: PagePlan): Promis
                 '6. 不要使用未声明的变量；不要使用任何外部请求；不要新增依赖。\n' +
                 '7. 视觉风格统一：白底、slate 系文字、blue-600 作为主色。\n' +
                 '8. 页面顶部用 <h1 className="text-xl font-bold text-slate-800 mb-4">页面标题</h1>。' +
-                (attempt > 0 ? `\n9. 输出务必精简：代码控制在 150 行以内，保证一次输出完整。` : ''),
-            },
+                (attempt > 0 ? `\n9. 输出务必精简：代码控制在 150 行以内，保证一次输出完整。` : '')))},
             { role: 'user', content: `PRODUCT_SPEC：\n${spec.slice(0, 5000)}\n\n本页职责：${page.purpose}${page.core ? '（核心功能页，内容要最丰富）' : ''}\n页面名称：${page.name}` },
           ],
           { temperature: 0.4 },

@@ -82,6 +82,7 @@ export const TASK_ORDER = [
   'copyright',
   'qa_consistency',
   'defense',
+  'deliver',
 ] as const;
 
 const SUB_DIRS = [

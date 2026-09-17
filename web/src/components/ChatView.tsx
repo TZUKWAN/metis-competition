@@ -113,6 +113,7 @@ export default function ChatView({ projectId, state, messages, onMessagesChanged
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -139,6 +140,26 @@ export default function ChatView({ projectId, state, messages, onMessagesChanged
   const currentContext = (): { type?: string; artifact?: string; page?: number } | undefined => {
     const w = window as unknown as { __metisContext?: { type: string; artifact?: string; page?: number } };
     return w.__metisContext;
+  };
+
+  const handleFile = async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`/api/projects/${projectId}/upload`, { method: "POST", body: form });
+    if (!res.ok) {
+      alert(`上传失败：HTTP ${res.status}`);
+      return;
+    }
+    setSending(true);
+    try {
+      await api.sendChat(projectId, `我上传了一份材料：${file.name}`, undefined);
+      if (/\.pptx$/i.test(file.name)) {
+        await api.addOutputs(projectId, ["ppt"]);
+      }
+    } finally {
+      setSending(false);
+      onMessagesChanged();
+    }
   };
 
   const showSelector = state?.project.onboarding?.step === "select";
@@ -192,6 +213,23 @@ export default function ChatView({ projectId, state, messages, onMessagesChanged
       </div>
       <div className="border-t border-slate-100 p-3">
         <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white p-2 focus-within:border-blue-400">
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void handleFile(f);
+            }}
+          />
+          <button
+            title="上传材料（比赛通知 / PPT 模板 / 团队资料等）"
+            className="shrink-0 rounded-lg px-2 py-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            onClick={() => fileRef.current?.click()}
+          >
+            📎
+          </button>
           <textarea
             className="max-h-32 min-h-[38px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm outline-none placeholder:text-slate-300"
             placeholder="描述你的想法，或告诉我要调整什么…"

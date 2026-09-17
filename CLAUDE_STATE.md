@@ -4,6 +4,18 @@
 按 PRD v2.0（`C:/Users/lauze/Downloads/METIS_Competition_PRD_v2.0_detailed.md`）在 `D:\metis竞赛` 交付 MVP。计划见 `PLAN.md`。
 **状态：M1–M10 全部完成；2026-09-17 已按 PRD §69 完成「AI大学生竞赛辅助平台」全流程测试（comp_003），§70 文件清单 23/23 全部 PASS。**
 
+
+## 交互重构（2026-09-17，commit b215bdc + 修复提交）
+已按重构指令完成极简三栏改造（项目列表 / AI 对话 / 生成物），旧阶段导航废弃：
+- onboarding 状态机：零表单新建 → 勾选成果卡片 → 五问（一轮一问，LLM 转场带 45s 兜底）→ 总结 + 后台起名 → 自动编排；状态持久化于 project.json（selected_outputs/onboarding）
+- orchestrator.ts：按 selected_outputs 生成任务计划（含依赖失败传播、无 API 的 images/video 自动跳过、强制重做清理）；进展以 kind:tool 消息写入聊天
+- agent 完成态对话带意图识别：add_outputs（补做专利等）/ rerun_outputs（重做首页等），直接驱动任务
+- artifact_status 由 tasks.json + 文件存在动态计算（pending/running/done/attention），旧项目自动推断兼容
+- 设置页三 Tab：模型与API（测试连接）/ Skills 开关 / Prompts 编辑（getPrompt 已接入 12 个关键提示词）
+- comp_004 实测：零表单新建 → 三问选项 → 五问 → 自动跑完 rules/research/demo/demo_test/capture/diagrams/business_plan/qa/defense；
+  PPT 因缺模板失败 → 📎 上传模板 → 对话「重试路演PPT」→ 恢复完成 → deliver 重跑。全链路闭环验证 ✓
+- 已知残留：research 一度因 LLM 拥堵变慢（有重试兜底）；专利/软著未选择时不进交付物（已修复空目录问题）
+
 ## 测试 API（刘总提供，写入 .env）
 - LLM：OpenRouter `https://openrouter.ai/api/v1`，model `stealth/union-alpha`（免费共享池，不稳定：上游 429 限流 / 偶发空 content，llm.ts 已加梯度退避硬扛）
 - 搜索：无 serper/tavily key；OpenRouter `:online` 插件需充值不可用 → 已实现 `SEARCH_PROVIDER=browser`（Playwright 真浏览器抓百度，<3 条结果补搜狗，跳转链接还原真实 URL；cn.bing.com 多词中文查询真浏览器也会降级，弃用）

@@ -4,7 +4,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { projectDir, readFacts, setTaskStatus, touch } from '../workspace.js';
+import { projectDir, readFacts, readProjectMeta, setTaskStatus, touch } from '../workspace.js';
 
 export async function runDeliver(projectId: string): Promise<{ copied: string[]; missing: string[] }> {
   setTaskStatus(projectId, 'deliver', 'running');
@@ -12,6 +12,7 @@ export async function runDeliver(projectId: string): Promise<{ copied: string[];
     const dir = projectDir(projectId);
     const facts = readFacts(projectId);
     const productName = facts.find((f) => f.key === 'project_name')?.value ?? projectId;
+    const meta = readProjectMeta(projectId);
     const out = path.join(dir, 'deliverables');
     fs.rmSync(out, { recursive: true, force: true });
 
@@ -55,8 +56,11 @@ export async function runDeliver(projectId: string): Promise<{ copied: string[];
     put('ppt/final.pdf', `${productName}路演PPT.pdf`);
     put('demo', `产品Demo`, noBuildArtifacts); // 纯源码交付；整目录含 node_modules 的 cpSync 在 Windows 上会触发原生崩溃
     put('assets/videos/demo-full.mp4', `Demo演示视频.mp4`);
-    put('patent', `专利材料`);
-    put('software-copyright/exported', `软件著作权材料`);
+    // 只在用户确实选了该成果且有产物时才复制（空目录不给进交付物）
+    if (fs.existsSync(path.join(dir, 'patent', 'disclosure.md'))) put('patent', `专利材料`);
+    else if ((meta.selected_outputs ?? []).includes('patent')) missing.push('patent/disclosure.md');
+    if (fs.existsSync(path.join(dir, 'software-copyright', 'exported', 'application-info.docx'))) put('software-copyright/exported', `软件著作权材料`);
+    else if ((meta.selected_outputs ?? []).includes('copyright')) missing.push('software-copyright/exported');
     put('assets', `项目资产`);
     put('qa/defense-questions.md', `答辩问题与建议.md`);
 

@@ -1,0 +1,23 @@
+{
+  "name": "metis-competition",
+  "version": "0.1.0",
+  "private": true,
+  "description": "METIS Competition - 大学生竞赛团队全链路生产平台（PRD v2.0 MVP）",
+  "scripts": {
+    "dev": "concurrently -n server,web \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "electron": "electron electron/main.js",
+    "test": "npm run test -w server"
+  },
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^44.4.1"
+  }
+}

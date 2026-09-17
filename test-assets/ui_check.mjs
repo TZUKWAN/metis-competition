@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const errors = [], pageErrors = [];
+page.on('console', m => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
+page.on('pageerror', e => pageErrors.push(String(e).slice(0, 300)));
+await page.goto('http://localhost:8787/', { waitUntil: 'networkidle', timeout: 20000 });
+await page.waitForTimeout(1500);
+const rootLen = await page.evaluate(() => document.getElementById('root')?.innerHTML.length ?? 0);
+console.log('root innerHTML length:', rootLen);
+console.log('console errors:', JSON.stringify(errors, null, 1));
+console.log('page errors:', JSON.stringify(pageErrors, null, 1));
+await page.screenshot({ path: 'D:/metis竞赛/test-assets/ui-blank.png' });
+await browser.close();
+process.exit(0);

@@ -1,0 +1,15 @@
+# 机密：本地配置（含 API key），绝不提交
+.env
+electron-server.log
+
+# 依赖与构建产物
+node_modules/
+web/dist/
+server/dist/
+
+# 运行时工作区（项目数据与生成成果，体积大且含用户材料）
+workspace/
+
+# 临时/日志
+*.log
+pw_*.mjs

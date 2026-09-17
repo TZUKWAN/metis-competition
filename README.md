@@ -30,6 +30,8 @@ npm run electron       # 桌面模式（自动拉起服务并开窗口）
 npm run test -w server # 服务端自测
 ```
 
+> 国内网络安装 Electron 二进制超时/失败时：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js`
+
 流水线任务（Web UI 或 API 触发，固定顺序）：
 `rules → research → demo → demo_test → capture → diagrams → images → video → business_plan → ppt → patent → copyright → qa_consistency → defense → deliver`
 
